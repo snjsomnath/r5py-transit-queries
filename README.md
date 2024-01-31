@@ -84,3 +84,60 @@ Finally, what we really need is a way to get transit times between two random po
 This table summarizes the total time taken and the average time per call for querying different numbers of random OD pairs. While the total time remains the same, the average time per call is going down. This indicates that there is a 2 second overhead in the querying function.
 
 But this can be avoided if you don't want the overhead of objectifying this process.
+
+
+# The final working code:
+```python 
+class ODMatrix:
+    def __init__(self, hdf5_path,origins_gdf):
+        self.hdf5_path = hdf5_path
+        self.travel_times_dict = {}
+        self.origins_gdf = origins_gdf
+        self.points = np.array(self.origins_gdf[['geometry']].apply(lambda x: [x[0].x, x[0].y], axis=1).tolist())
+        self.tree = KDTree(self.points)
+        self.ids = self.origins_gdf['id'].to_numpy()
+        self.preprocess_data()
+
+
+    def preprocess_data(self):
+        """Preprocess the data from the HDF5 file and store it in a dictionary for fast lookups."""
+        with h5py.File(self.hdf5_path, 'r') as hdf5_file:
+
+
+            # Proceed with the existing logic if datasets are present
+            dataset_size = hdf5_file['from_id'].shape[0]
+            batch_size = 10000  # Adjust based on your system's memory capacity
+
+            for i in range(0, dataset_size, batch_size):
+                from_ids = hdf5_file['from_id'][i:i+batch_size]
+                to_ids = hdf5_file['to_id'][i:i+batch_size]
+                travel_times = hdf5_file['travel_time'][i:i+batch_size]
+                
+                for from_id, to_id, travel_time in zip(from_ids, to_ids, travel_times):
+                    self.travel_times_dict[(from_id, to_id)] = travel_time
+    
+    def get_closest_id_tree(self,lat,lon):
+        dist,closest_idx = self.tree.query([[lon,lat]])
+        # Get closest id
+        closest_id = self.ids[closest_idx][0][0]
+        return closest_id
+    
+    def query_travel_time(self,o,d):
+        # Get closest id
+        origin_closest_id = self.get_closest_id_tree(o[1], o[0])
+        # Get closest id
+        destination_closest_id = self.get_closest_id_tree(d[1], d[0])
+        # Query the travel time for a given origin and destination ID pair.
+        travel_time = self.travel_times_dict.get((origin_closest_id, destination_closest_id), None)
+        return travel_time
+
+
+# Test the class
+od_matrix = ODMatrix(path_to_hdf5, origins)
+# Testing the query_travel_time function
+time_start = time.time()
+travel_time = od_matrix.query_travel_time([o_x,o_y], [d_x,d_y])
+# Print time for processing
+print(travel_time)
+
+```
